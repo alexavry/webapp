@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>People Manager - Azure SQL Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen py-12 px-4">
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-4xl font-bold text-white mb-2">People Manager</h1>
+            <p class="text-slate-400">Application CRUD simple pour s'entraîner au déploiement sur Azure</p>
+        </div>
+
+        <!-- Form Section -->
+        <div class="bg-slate-800 rounded-lg shadow-xl p-6 mb-8 border border-slate-700">
+            <h2 class="text-xl font-semibold text-white mb-4">Ajouter une personne</h2>
+            <form id="peopleForm" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="name" class="block text-sm font-medium text-slate-300 mb-2">Nom</label>
+                        <input 
+                            type="text" 
+                            id="name" 
+                            name="name" 
+                            required
+                            placeholder="Ex: Jean Dupont"
+                            class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                        >
+                    </div>
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-slate-300 mb-2">Email</label>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            placeholder="Ex: jean@example.com"
+                            class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                        >
+                    </div>
+                </div>
+                <button 
+                    type="submit"
+                    class="w-full bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-105"
+                >
+                    ➕ Ajouter une personne
+                </button>
+            </form>
+        </div>
+
+        <!-- Loading & Status Messages -->
+        <div id="statusMessage" class="hidden mb-4 p-4 rounded-lg text-sm font-medium"></div>
+
+        <!-- People Table Section -->
+        <div class="bg-slate-800 rounded-lg shadow-xl overflow-hidden border border-slate-700">
+            <div class="px-6 py-4 border-b border-slate-700">
+                <h2 class="text-xl font-semibold text-white">Liste des personnes (<span id="peopleCount">0</span>)</h2>
+            </div>
+            
+            <div id="tableContainer" class="overflow-x-auto">
+                <table class="w-full text-sm text-slate-300">
+                    <thead class="bg-slate-700 border-b border-slate-600">
+                        <tr>
+                            <th class="px-6 py-3 text-left font-semibold text-slate-200">ID</th>
+                            <th class="px-6 py-3 text-left font-semibold text-slate-200">Nom</th>
+                            <th class="px-6 py-3 text-left font-semibold text-slate-200">Email</th>
+                            <th class="px-6 py-3 text-center font-semibold text-slate-200">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="peopleTable">
+                        <tr class="border-b border-slate-700 hover:bg-slate-700/50 transition">
+                            <td colspan="4" class="px-6 py-8 text-center text-slate-400">
+                                <div class="flex justify-center items-center">
+                                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500"></div>
+                                    <span class="ml-3">Chargement...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="hidden px-6 py-12 text-center">
+                <div class="text-6xl mb-4">👥</div>
+                <p class="text-slate-400 text-lg">Aucune personne pour le moment</p>
+                <p class="text-slate-500 text-sm">Ajoutez votre première personne avec le formulaire ci-dessus</p>
+            </div>
+        </div>
+
+        <!-- Info Box -->
+        <div class="mt-8 bg-slate-800 border border-slate-700 rounded-lg p-4">
+            <p class="text-slate-400 text-sm">
+                <span class="font-semibold text-teal-400">💡 Info:</span> Cette app se connecte à Azure SQL Database via une API REST (Node.js + Express). 
+                Idéale pour t'entraîner au déploiement sur Azure App Service.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        
+        // Fonction pour afficher les messages
+        function showStatus(message, type = 'info') {
+            const el = document.getElementById('statusMessage');
+            el.textContent = message;
+            el.className = 'p-4 rounded-lg text-sm font-medium';
+            
+            if (type === 'success') {
+                el.classList.add('bg-teal-900/50', 'border', 'border-teal-500', 'text-teal-200');
+            } else if (type === 'error') {
+                el.classList.add('bg-red-900/50', 'border', 'border-red-500', 'text-red-200');
+            } else {
+                el.classList.add('bg-slate-700/50', 'border', 'border-slate-600', 'text-slate-300');
+            }
+            
+            el.classList.remove('hidden');
+            setTimeout(() => el.classList.add('hidden'), 4000);
+        }
+
+        // Charger la liste des personnes
+        async function loadPeople() {
+            try {
+                const response = await fetch(`${API_BASE}/people`);
+                if (!response.ok) throw new Error('Erreur lors du chargement');
+                
+                const people = await response.json();
+                displayPeople(people);
+            } catch (error) {
+                console.error('Erreur:', error);
+                showStatus('❌ Impossible de charger les personnes', 'error');
+                document.getElementById('peopleTable').innerHTML = `
+                    <tr class="border-b border-slate-700">
+                        <td colspan="4" class="px-6 py-8 text-center text-red-400">
+                            Erreur de connexion à l'API. Vérifiez que le serveur fonctionne.
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        // Afficher les personnes dans le tableau
+        function displayPeople(people) {
+            const tbody = document.getElementById('peopleTable');
+            const emptyState = document.getElementById('emptyState');
+            const count = document.getElementById('peopleCount');
+            
+            count.textContent = people.length;
+            
+            if (people.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            
+            emptyState.classList.add('hidden');
+            tbody.innerHTML = people.map(person => `
+                <tr class="border-b border-slate-700 hover:bg-slate-700/50 transition">
+                    <td class="px-6 py-4 text-slate-300 font-medium">${person.id}</td>
+                    <td class="px-6 py-4 text-slate-200">${escapeHtml(person.name)}</td>
+                    <td class="px-6 py-4 text-slate-400">${person.email ? escapeHtml(person.email) : '-'}</td>
+                    <td class="px-6 py-4 text-center">
+                        <button 
+                            onclick="deletePerson(${person.id})"
+                            class="inline-block bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-semibold py-1 px-3 rounded transition duration-150 text-sm"
+                        >
+                            🗑️ Supprimer
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Ajouter une personne
+        document.getElementById('peopleForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            
+            if (!name) {
+                showStatus('❌ Le nom est requis', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/people`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email: email || null })
+                });
+                
+                if (!response.ok) throw new Error('Erreur lors de l\'ajout');
+                
+                showStatus('✅ Personne ajoutée avec succès!', 'success');
+                document.getElementById('peopleForm').reset();
+                await loadPeople();
+            } catch (error) {
+                console.error('Erreur:', error);
+                showStatus('❌ Erreur lors de l\'ajout', 'error');
+            }
+        });
+
+        // Supprimer une personne
+        async function deletePerson(id) {
+            if (!confirm('Êtes-vous sûr de vouloir supprimer cette personne?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/people/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) throw new Error('Erreur lors de la suppression');
+                
+                showStatus('✅ Personne supprimée avec succès!', 'success');
+                await loadPeople();
+            } catch (error) {
+                console.error('Erreur:', error);
+                showStatus('❌ Erreur lors de la suppression', 'error');
+            }
+        }
+
+        // Fonction pour échapper les caractères HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Charger les personnes au démarrage
+        loadPeople();
+        // Recharger toutes les 10 secondes (optionnel, pour voir les mises à jour en temps réel)
+        setInterval(loadPeople, 10000);
+    </script>
+</body>
+</html>
